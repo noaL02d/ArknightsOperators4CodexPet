@@ -5,4 +5,5 @@ release/
 *.log
 native/build/
 native/vendor/spine-runtimes/
+*.zip
 

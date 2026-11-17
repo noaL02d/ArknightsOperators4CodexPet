@@ -1,0 +1,160 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; background: transparent; }
+      canvas { display: block; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <script src="../../public/vendor/spine-arknights.js"></script>
+    <script>
+      const { ipcRenderer } = require('electron');
+
+      function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = src;
+        });
+      }
+
+      async function renderFrame(payload) {
+        const canvas = document.getElementById('c');
+        const dpr = window.devicePixelRatio || 1;
+        const cssW = window.innerWidth;
+        const cssH = window.innerHeight;
+        canvas.width = Math.round(cssW * dpr);
+        canvas.height = Math.round(cssH * dpr);
+        canvas.style.width = cssW + 'px';
+        canvas.style.height = cssH + 'px';
+        const gl = canvas.getContext('webgl', {
+          alpha: true,
+          premultipliedAlpha: true,
+          preserveDrawingBuffer: true,
+          antialias: true,
+        });
+        const renderer = new spine.webgl.SceneRenderer(canvas, gl, false);
+        renderer.skeletonRenderer.premultipliedAlpha = true;
+
+        const images = {};
+        for (const [name, base64] of Object.entries(payload.images)) {
+          images[name] = await loadImage('data:image/png;base64,' + base64);
+        }
+        let imageIndex = 0;
+        const atlas = new spine.TextureAtlas(payload.atlas, () => {
+          const img = Object.values(images)[imageIndex++] || Object.values(images)[0];
+          return new spine.webgl.GLTexture(renderer.context, img, false);
+        });
+        const skelBytes = new Uint8Array(payload.skel);
+        const data = new spine.SkeletonBinary(new spine.AtlasAttachmentLoader(atlas)).readSkeletonData(
+          skelBytes,
+        );
+
+        const anchorSkeleton = new spine.Skeleton(data);
+        const anchorState = new spine.AnimationState(new spine.AnimationStateData(data));
+        anchorState.setAnimation(0, payload.anim, true);
+        anchorState.update(0.3);
+        anchorState.apply(anchorSkeleton);
+        anchorSkeleton.updateWorldTransform();
+        const offset = new spine.Vector2();
+        const size = new spine.Vector2();
+        const temp = new spine.Vector2();
+        anchorSkeleton.getBounds(offset, size, temp);
+        const anchor = { x: offset.x + size.x / 2, y: offset.y };
+
+        const skeleton = new spine.Skeleton(data);
+        const state = new spine.AnimationState(new spine.AnimationStateData(data));
+        state.setAnimation(0, payload.anim, true);
+        state.update(payload.time);
+        state.apply(skeleton);
+        skeleton.updateWorldTransform();
+        if (payload.only) {
+          const re = new RegExp(payload.only, 'i');
+          for (const slot of skeleton.slots) {
+            if (!re.test(slot.data.name)) slot.attachment = null;
+          }
+        }
+        if (payload.hide) {
+          const re = new RegExp(payload.hide, 'i');
+          for (const slot of skeleton.slots) {
+            if (re.test(slot.data.name)) slot.attachment = null;
+          }
+        }
+
+        const eyeState = skeleton.drawOrder
+          .map((slot, index) => ({ slot, index }))
+          .filter(({ slot }) => /Eye|Brow/.test(slot.data.name))
+          .map(
+            ({ slot, index }) =>
+              `${slot.data.name}=${slot.attachment ? slot.attachment.name : '-'}` +
+              `(a=${slot.color.a.toFixed(2)},z=${index})`,
+          )
+          .join(' ');
+        console.log('EYES ' + eyeState);
+        console.log(
+          'ORDER ' + skeleton.drawOrder.map((slot, i) => `${i}:${slot.data.name}`).join(' '),
+        );
+        for (const name of ['F_L_Eyeball_A', 'F_L_EyeW_A', 'F_L_EyeW_c', 'F_L_C_Eye_B']) {
+          const slot = skeleton.findSlot(name);
+          if (!slot || !slot.attachment) continue;
+          const a = slot.attachment;
+          if (!a.worldVerticesLength) continue;
+          const verts = new Float32Array(a.worldVerticesLength);
+          a.computeWorldVertices(slot, 0, a.worldVerticesLength, verts, 0, 2);
+          let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+          for (let i = 0; i < verts.length; i += 2) {
+            minX = Math.min(minX, verts[i]);
+            maxX = Math.max(maxX, verts[i]);
+            minY = Math.min(minY, verts[i + 1]);
+            maxY = Math.max(maxY, verts[i + 1]);
+          }
+          console.log(
+            `BBOX ${name} ${(maxX - minX).toFixed(1)}x${(maxY - minY).toFixed(1)} y=${minY.toFixed(1)}..${maxY.toFixed(1)}`,
+          );
+        }
+
+        const typeCounts = {};
+        for (const skin of skeleton.data.skins) {
+          const attachments = skin.attachments || {};
+          for (const slotIndex of Object.keys(attachments)) {
+            const map = attachments[slotIndex];
+            for (const name of Object.keys(map)) {
+              const att = map[name];
+              if (!att) continue;
+              let type = 'other';
+              const nameOf = att.constructor && att.constructor.name;
+              if (/Clip/i.test(nameOf || '')) type = 'clip';
+              else if (/Region/i.test(nameOf || '')) type = 'region';
+              else if (/Mesh/i.test(nameOf || '')) type = 'mesh';
+              else type = nameOf || 'unknown';
+              typeCounts[type] = (typeCounts[type] || 0) + 1;
+              if (type === 'clip') console.log('CLIP ' + slot.data.name + ' ' + name);
+            }
+          }
+        }
+        console.log('TYPES ' + JSON.stringify(typeCounts));
+
+        const zoom = (payload.referenceHeight * 1.08) / canvas.height;
+        const bottomMargin = 8 * (canvas.height / Math.max(1, canvas.clientHeight));
+        const camera = new spine.webgl.OrthoCamera(canvas.width, canvas.height);
+        camera.zoom = zoom;
+        camera.position.x = anchor.x;
+        camera.position.y = anchor.y + (zoom * canvas.height) / 2 - zoom * bottomMargin;
+        renderer.camera = camera;
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        renderer.begin();
+        renderer.drawSkeleton(skeleton, true);
+        renderer.end();
+
+        ipcRenderer.send('frame', canvas.toDataURL('image/png'));
+      }
+      window.renderFrame = renderFrame;
+    </script>
+  </body>
+</html>
