@@ -44,6 +44,7 @@ class SpinePlayer {
   bool hitTest(float clientX, float clientY) const;
   void screenToWorld(float screenX, float screenY, float& worldX, float& worldY) const;
   void worldToScreen(float worldX, float worldY, float& screenX, float& screenY) const;
+  bool dotScreenPosition(float& screenX, float& screenY) const;
 
   Form form() const { return form_; }
   void setOnIdle(std::function<void()> callback) { onIdle_ = std::move(callback); }
@@ -62,6 +63,7 @@ class SpinePlayer {
     spine::Atlas* atlas = nullptr;
     Texture2D* texture = nullptr;
     std::map<std::string, Anchor> anchors;
+    std::map<std::string, Anchor> boxesTopRight;
   };
 
   struct Listener : spine::AnimationStateListenerObject {

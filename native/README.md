@@ -20,7 +20,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File native/build.ps1
 | 渲染 | Spine WebGL + Chromium 合成 | spine-cpp 3.8 求顶点，D3D11 一次批量绘制 |
 | 每帧 | 60fps 无条件重绘 | 60fps，窗口隐藏时完全停帧；无 GPU 回读 |
 | 进程检测 | 每 2.5s 起一个 `tasklist.exe` | 每 2s `CreateToolhelp32Snapshot`（进程内，微秒级） |
-| 读取 Codex 状态 | 每 2s 起一个 Electron 子进程读 SQLite | 待迁移（见下） |
+| 读取 Codex 状态 | 每 2s 起一个 Electron 子进程读 SQLite | 内嵌 SQLite 只读查询（无子进程） |
 | 交互 | JS 事件 + IPC | 原生鼠标消息 + alpha 命中测试 |
 
 ## 已实现
@@ -34,13 +34,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File native/build.ps1
 - 透明区域点击穿透（按 alpha 判断）、多显示器坐标钳制、Per-Monitor V2 DPI
 - 配置持久化：`%APPDATA%\ArknightsOperators4CodexPet\config.json`
 - 只在 `ChatGPT.exe` 运行时显示
+- Codex 会话小圆点 + 消息窗口：只显示未读的已完成会话（绿）与正在运行的会话（蓝），无消息时窗口自动关闭
 - `--snapshot <out.png> [--form battle] [--battle skill3] [--base sit] [--scale 1.0]` 离屏渲染单帧
 - `--selftest` 打印状态机每条转移对应的动画序列，便于和策划表逐条核对
 
+## 消息窗口
+
+- 小圆点固定在角色头部右上（角色反向时对称），颜色优先级：蓝（运行中）> 绿（未读完成）> 灰（无消息）
+- 点击小圆点打开 / 关闭消息窗口；窗口上下按时间倒序：运行中取开始时间，已完成取完成时间
+- 已读判定直接读 `~/.codex/state_5.sqlite` 的 `thread_read_receipts`，与 Codex 里的小蓝点一致
+- 点击某一行会打开对应的 Codex 会话
+
 ## 待迁移
 
-- Codex 会话监视（`~/.codex/sessions` 增量 tail + `session_index.jsonl`）
-- 状态圆点（蓝/绿/灰）与会话卡片窗口
 - 原生宠物包导出（codex-pet spritesheet）
 
 ## 渲染对齐说明

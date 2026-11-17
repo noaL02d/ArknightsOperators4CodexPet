@@ -16,12 +16,15 @@
 #include "json.h"
 #include "log.h"
 #include "renderer.h"
+#include "card_window.h"
+#include "session.h"
 #include "spine_player.h"
 
 namespace {
 
 constexpr int kTimerFrame = 1;
 constexpr int kTimerWatch = 2;
+constexpr int kTimerSession = 3;
 constexpr UINT kTrayMessage = WM_APP + 1;
 constexpr UINT kTrayId = 1;
 constexpr float kBaseHeight = 375.0f;
@@ -72,6 +75,13 @@ struct App {
   HICON smallIcon = nullptr;
   Renderer renderer;
   SpinePlayer player;
+  SessionMonitor monitor;
+  CardWindow card;
+  Texture2D* dotTexture = nullptr;
+  POINT dotPosition{};
+  bool dotVisible = false;
+  uint64_t cardRevision = 0;
+  bool cardDismissed = false;
   PetStateMachine stateMachine;
   OperatorManifest manifest;
   Config config;
@@ -101,6 +111,7 @@ App g_app;
 int snapshotFrames = 20;
 std::string g_slotFilter;
 bool g_reverseOrder = false;
+double nowMilliseconds();
 
 std::wstring moduleDirectory() {
   wchar_t buffer[MAX_PATH * 4];
@@ -280,11 +291,137 @@ void moveWindowTo(POINT position) {
                SWP_NOACTIVATE | SWP_NOSIZE);
 }
 
+Texture2D* createDotTexture(Renderer& renderer) {
+  const int size = 64;
+  std::vector<unsigned char> rgba(static_cast<size_t>(size) * size * 4);
+  const float half = size * 0.5f;
+  for (int y = 0; y < size; ++y) {
+    for (int x = 0; x < size; ++x) {
+      float dx = (static_cast<float>(x) + 0.5f) - half;
+      float dy = (static_cast<float>(y) + 0.5f) - half;
+      float d = std::sqrt(dx * dx + dy * dy) / half;
+      float core = std::clamp((0.90f - d) / 0.10f, 0.0f, 1.0f);
+      float ring = std::clamp((d - 0.90f) / 0.06f, 0.0f, 1.0f) *
+                   std::clamp((1.18f - d) / 0.10f, 0.0f, 1.0f);
+      float alpha = std::max(core, ring * 0.5f);
+      float shade = core;
+      float value = 255.0f * shade + 20.0f * (1.0f - shade);
+      auto* out = &rgba[(static_cast<size_t>(y) * size + x) * 4];
+      out[0] = static_cast<unsigned char>(std::clamp(value, 0.0f, 255.0f));
+      out[1] = out[0];
+      out[2] = out[0];
+      out[3] = static_cast<unsigned char>(std::clamp(alpha, 0.0f, 1.0f) * 255.0f);
+    }
+  }
+  return renderer.createTexture(rgba.data(), size, size);
+}
+
+void drawDot() {
+  float x = 0.0f;
+  float y = 0.0f;
+  g_app.dotVisible = g_app.player.dotScreenPosition(x, y);
+  if (!g_app.dotVisible || !g_app.dotTexture) return;
+  g_app.dotPosition = {static_cast<LONG>(std::lround(x)), static_cast<LONG>(std::lround(y))};
+  {
+    static float lastX = -1.0f;
+    static float lastY = -1.0f;
+    if (std::fabs(x - lastX) > 2.0f || std::fabs(y - lastY) > 2.0f) {
+      PETLOG("pet: dot at %.0f,%.0f\n", x, y);
+      lastX = x;
+      lastY = y;
+    }
+  }
+  float size = 15.0f * g_app.dpiScale;
+  float r = 0.55f;
+  float g = 0.58f;
+  float b = 0.65f;
+  float a = 0.9f;
+  if (g_app.monitor.hasRunning()) {
+    r = 0.35f;
+    g = 0.65f;
+    b = 1.0f;
+    float t = static_cast<float>(nowMilliseconds() / 1000.0);
+    a = 0.72f + 0.28f * (0.5f + 0.5f * std::sin(t * 4.5f));
+  } else if (g_app.monitor.hasUnread()) {
+    r = 0.43f;
+    g = 0.91f;
+    b = 0.66f;
+    a = 1.0f;
+  }
+  float left = x - size * 0.5f;
+  float top = y - size * 0.5f;
+  Vertex quad[4] = {
+      {left, top, 0.0f, 0.0f, r, g, b, a},
+      {left + size, top, 1.0f, 0.0f, r, g, b, a},
+      {left + size, top + size, 1.0f, 1.0f, r, g, b, a},
+      {left, top + size, 0.0f, 1.0f, r, g, b, a},
+  };
+  g_app.renderer.drawQuad(g_app.dotTexture, Blend::Normal, quad);
+}
+
 void renderFrame() {
   g_app.renderer.begin();
   g_app.player.render(g_app.renderer);
+  drawDot();
   g_app.renderer.end();
   g_app.renderer.present(g_app.window, g_app.windowPosition.x, g_app.windowPosition.y);
+}
+
+POINT dotScreenPoint() {
+  return POINT{g_app.windowPosition.x + g_app.dotPosition.x,
+               g_app.windowPosition.y + g_app.dotPosition.y};
+}
+
+void positionCardWindow() {
+  if (!g_app.card.hwnd()) return;
+  int width = g_app.card.width();
+  int height = g_app.card.height();
+  if (width <= 0 || height <= 0) return;
+  RECT pet{};
+  GetWindowRect(g_app.window, &pet);
+  POINT dot = dotScreenPoint();
+  int x = dot.x - width / 2;
+  int y = pet.top - height - static_cast<int>(8 * g_app.dpiScale);
+  HMONITOR monitor = MonitorFromPoint(dot, MONITOR_DEFAULTTONEAREST);
+  MONITORINFO info{};
+  info.cbSize = sizeof(info);
+  if (GetMonitorInfoW(monitor, &info)) {
+    if (y < info.rcWork.top + 8) y = pet.bottom + static_cast<int>(8 * g_app.dpiScale);
+    x = std::clamp(x, static_cast<int>(info.rcWork.left) + 8,
+                   static_cast<int>(info.rcWork.right) - width - 8);
+    y = std::clamp(y, static_cast<int>(info.rcWork.top) + 8,
+                   static_cast<int>(info.rcWork.bottom) - height - 8);
+  }
+  g_app.card.show(x, y);
+}
+
+void syncCard(bool force) {
+  const auto& messages = g_app.monitor.visible();
+  if (messages.empty()) {
+    if (g_app.card.visible()) g_app.card.hide();
+    g_app.cardDismissed = false;
+    return;
+  }
+  if (!force && g_app.monitor.revision() == g_app.cardRevision) return;
+  g_app.cardRevision = g_app.monitor.revision();
+  PETLOG("pet: sessions=%zu\n", g_app.monitor.visible().size());
+  for (const SessionMessage& message : g_app.monitor.visible()) {
+    PETLOG("  %s %s %lld\n", message.status == SessionStatus::Running ? "running" : "done",
+           message.threadId.c_str(), static_cast<long long>(message.sortTime()));
+  }
+  g_app.card.setMessages(messages, g_app.dpiScale);
+  if (!g_app.cardDismissed) positionCardWindow();
+}
+
+void toggleCard() {
+  if (g_app.card.visible()) {
+    g_app.card.hide();
+    g_app.cardDismissed = true;
+    return;
+  }
+  if (g_app.monitor.visible().empty()) return;
+  g_app.cardDismissed = false;
+  syncCard(true);
 }
 
 double nowMilliseconds() {
@@ -320,6 +457,7 @@ void updateVisibility() {
     renderFrame();
   } else {
     ShowWindow(g_app.window, SW_HIDE);
+    g_app.card.hide();
   }
   updateFrameTimer();
 }
@@ -368,8 +506,10 @@ void applyScale(float scale, POINT anchorScreen, bool fromCursor) {
   saveConfig();
 }
 
-void openCodex() {
-  ShellExecuteW(nullptr, L"open", L"codex://launch", nullptr, nullptr, SW_SHOWNORMAL);
+void openCodex(const std::string& threadId = std::string()) {
+  std::wstring url =
+      threadId.empty() ? std::wstring(L"codex://launch") : widen("codex://threads/" + threadId);
+  ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 HICON createIconFromPng(const std::wstring& path, int size) {
@@ -671,12 +811,30 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     case WM_NCHITTEST: {
       POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
       ScreenToClient(window, &point);
+      if (g_app.dotVisible) {
+        float dx = static_cast<float>(point.x - g_app.dotPosition.x);
+        float dy = static_cast<float>(point.y - g_app.dotPosition.y);
+        float radius = 10.0f * g_app.dpiScale;
+        if (dx * dx + dy * dy <= radius * radius) return HTCLIENT;
+      }
       if (!g_app.player.hitTest(static_cast<float>(point.x), static_cast<float>(point.y))) {
         return HTTRANSPARENT;
       }
       return HTCLIENT;
     }
     case WM_LBUTTONDOWN:
+      if (g_app.dotVisible) {
+        int x = GET_X_LPARAM(lParam);
+        int y = GET_Y_LPARAM(lParam);
+        float dx = static_cast<float>(x - g_app.dotPosition.x);
+        float dy = static_cast<float>(y - g_app.dotPosition.y);
+        float radius = 10.0f * g_app.dpiScale;
+        if (dx * dx + dy * dy <= radius * radius) {
+          PETLOG("pet: dot click\n");
+          toggleCard();
+          return 0;
+        }
+      }
       onPointerDown(window, lParam);
       return 0;
     case WM_MOUSEMOVE:
@@ -734,7 +892,27 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         }
         return 0;
       }
+      if (wParam == kTimerSession) {
+        int64_t now = nowUnixMs();
+        g_app.monitor.tick(now);
+        g_app.monitor.refreshReceipts(now);
+        syncCard(false);
+        return 0;
+      }
       break;
+    case WM_MOVE:
+      if (g_app.card.visible()) positionCardWindow();
+      return 0;
+    case CardWindow::kRowClick: {
+      int index = static_cast<int>(wParam);
+      const auto& messages = g_app.card.messages();
+      if (index >= 0 && index < static_cast<int>(messages.size())) {
+        openCodex(messages[index].threadId);
+        g_app.card.hide();
+        g_app.cardDismissed = true;
+      }
+      return 0;
+    }
     case kTrayMessage:
       if (LOWORD(lParam) == WM_LBUTTONUP) {
         g_app.userHidden = !g_app.userHidden;
@@ -749,6 +927,8 @@ LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
       return 0;
     case WM_DESTROY:
       KillTimer(window, kTimerWatch);
+      KillTimer(window, kTimerSession);
+      g_app.card.destroy();
       PostQuitMessage(0);
       return 0;
     default:
@@ -967,12 +1147,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                 MB_ICONERROR);
     return 1;
   }
+  g_app.dotTexture = createDotTexture(g_app.renderer);
   if (!g_app.player.load(g_app.renderer, g_app.manifest, g_app.config.form)) {
     MessageBoxW(nullptr, L"无法加载 Spine 模型。", L"Codex Pet", MB_ICONERROR);
     return 1;
   }
   g_app.stateMachine.reset(g_app.config.form, g_app.config.baseState, g_app.config.battleState);
   g_app.player.setOnIdle([] { g_app.stateMachine.markIdle(); });
+  g_app.card.create(instance, g_app.window);
   applyViewportSize();
   g_app.player.play(g_app.stateMachine.idlePlan());
   SetWindowPos(g_app.window, HWND_TOPMOST, position.x, position.y, width, height, SWP_NOACTIVATE);
@@ -996,6 +1178,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   }
   updateFrameTimer();
   SetTimer(g_app.window, kTimerWatch, 2000, nullptr);
+  SetTimer(g_app.window, kTimerSession, 700, nullptr);
   timeBeginPeriod(1);
 
   MSG message{};

@@ -26,7 +26,10 @@ $sources = @(
   (Join-Path $root 'src/renderer.cpp'),
   (Join-Path $root 'src/spine_player.cpp'),
   (Join-Path $root 'src/image.cpp'),
-  (Join-Path $root 'src/spine_extension.cpp')
+  (Join-Path $root 'src/spine_extension.cpp'),
+  (Join-Path $root 'src/session.cpp'),
+  (Join-Path $root 'src/card_window.cpp'),
+  (Join-Path $root 'vendor/sqlite/sqlite3.c')
 )
 $sources += Get-ChildItem (Join-Path $root 'vendor/spine-cpp/src/spine') -Filter *.cpp |
   ForEach-Object { $_.FullName }
@@ -40,7 +43,16 @@ $common = @(
   '-DWIN32_LEAN_AND_MEAN',
   '-fno-strict-aliasing',
   '-I', (Join-Path $root 'src'),
-  '-I', (Join-Path $root 'vendor/spine-cpp/include')
+  '-I', (Join-Path $root 'vendor/spine-cpp/include'),
+  '-I', (Join-Path $root 'vendor/sqlite')
+)
+
+$sqliteFlags = @(
+  '-DSQLITE_THREADSAFE=0',
+  '-DSQLITE_OMIT_LOAD_EXTENSION',
+  '-DSQLITE_DEFAULT_MEMSTATUS=0',
+  '-DSQLITE_OMIT_DEPRECATED',
+  '-DSQLITE_DQS=0'
 )
 
 if ($Console) {
@@ -50,15 +62,25 @@ if ($Console) {
 }
 
 $objects = @()
+$newestHeader = Get-ChildItem (Join-Path $root 'src') -Filter *.h |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$headerTime = if ($newestHeader) { $newestHeader.LastWriteTime } else { [datetime]::MinValue }
 foreach ($source in $sources) {
   $name = [System.IO.Path]::GetFileNameWithoutExtension($source)
   $object = Join-Path $build ($name + '.o')
-  if ((Test-Path $object) -and ((Get-Item $object).LastWriteTime -gt (Get-Item $source).LastWriteTime)) {
+  if ((Test-Path $object) -and
+      ((Get-Item $object).LastWriteTime -gt (Get-Item $source).LastWriteTime) -and
+      ((Get-Item $object).LastWriteTime -gt $headerTime)) {
     $objects += $object
     continue
   }
   Write-Host "g++ $name"
-  & g++ @common -c $source -o $object
+  if ($source.EndsWith('.c')) {
+    $cFlags = @('-std=c11') + ($common | Where-Object { $_ -ne '-std=c++17' })
+    & gcc @cFlags @sqliteFlags -c $source -o $object
+  } else {
+    & g++ @common -c $source -o $object
+  }
   if ($LASTEXITCODE -ne 0) { throw "compile failed: $source" }
   $objects += $object
 }

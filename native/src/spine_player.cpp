@@ -251,6 +251,10 @@ bool SpinePlayer::loadModel(Renderer& renderer, const OperatorManifest& manifest
       anchor.x = bounds.minX + (bounds.maxX - bounds.minX) * 0.5f;
       anchor.y = bounds.minY;
       out.anchors[key] = anchor;
+      Anchor topRight;
+      topRight.x = bounds.maxX - 4.0f;
+      topRight.y = bounds.maxY - 4.0f;
+      out.boxesTopRight[key] = topRight;
     }
   }
   return true;
@@ -678,6 +682,25 @@ void SpinePlayer::worldToScreen(float worldX, float worldY, float& screenX, floa
   float cameraY = cameraAnchor_.y + zoom_ * viewportHeight_ * 0.5f - zoom_ * bottomMargin_;
   screenX = viewportWidth_ * 0.5f + (worldX - cameraX) / zoom_;
   screenY = viewportHeight_ * 0.5f - (worldY - cameraY) / zoom_;
+}
+
+bool SpinePlayer::dotScreenPosition(float& screenX, float& screenY) const {
+  if (!ready_ || !manifest_) return false;
+  const Model& model = models_[form_ == Form::Base ? 0 : 1];
+  std::string key;
+  if (!plan_.steps.empty()) key = plan_.steps.back().anim;
+  auto box = model.boxesTopRight.find(key);
+  if (box == model.boxesTopRight.end()) {
+    const char* fallback = form_ == Form::Base ? "standIdle" : "idle";
+    box = model.boxesTopRight.find(fallback);
+    if (box == model.boxesTopRight.end()) return false;
+  }
+  float worldX = box->second.x * static_cast<float>(facing_);
+  float worldY = box->second.y;
+  float cameraY = cameraAnchor_.y + zoom_ * viewportHeight_ * 0.5f - zoom_ * bottomMargin_;
+  screenX = viewportWidth_ * 0.5f + (worldX - cameraAnchor_.x) / zoom_;
+  screenY = viewportHeight_ * 0.5f - (worldY - cameraY) / zoom_;
+  return true;
 }
 
 void SpinePlayer::dumpAnimation(const std::string& petKey) {
