@@ -41,7 +41,7 @@ struct Bounds {
   bool valid() const { return maxX >= minX && maxY >= minY; }
 };
 
-Bounds computeBounds(spine::Skeleton& skeleton) {
+Bounds computeBounds(spine::Skeleton& skeleton, const char* nameFilter = nullptr) {
   Bounds bounds;
   size_t capacity = 0;
   std::vector<float> vertices;
@@ -49,6 +49,10 @@ Bounds computeBounds(spine::Skeleton& skeleton) {
   for (size_t i = 0; i < drawOrder.size(); ++i) {
     spine::Slot* slot = drawOrder[i];
     if (!slot->getBone().isActive()) continue;
+    if (nameFilter && std::string(slot->getData().getName().buffer()).find(nameFilter) ==
+                          std::string::npos) {
+      continue;
+    }
     spine::Attachment* attachment = slot->getAttachment();
     if (!attachment) continue;
     size_t length = 0;
@@ -251,9 +255,11 @@ bool SpinePlayer::loadModel(Renderer& renderer, const OperatorManifest& manifest
       anchor.x = bounds.minX + (bounds.maxX - bounds.minX) * 0.5f;
       anchor.y = bounds.minY;
       out.anchors[key] = anchor;
+      Bounds head = computeBounds(skeleton, "Head");
+      if (!head.valid()) head = bounds;
       Anchor topRight;
-      topRight.x = bounds.maxX - 4.0f;
-      topRight.y = bounds.maxY - 4.0f;
+      topRight.x = head.maxX - 2.0f;
+      topRight.y = head.maxY - 2.0f;
       out.boxesTopRight[key] = topRight;
     }
   }

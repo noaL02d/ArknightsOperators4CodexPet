@@ -299,13 +299,13 @@ Texture2D* createDotTexture(Renderer& renderer) {
     for (int x = 0; x < size; ++x) {
       float dx = (static_cast<float>(x) + 0.5f) - half;
       float dy = (static_cast<float>(y) + 0.5f) - half;
-      float d = std::sqrt(dx * dx + dy * dy) / half;
-      float core = std::clamp((0.90f - d) / 0.10f, 0.0f, 1.0f);
-      float ring = std::clamp((d - 0.90f) / 0.06f, 0.0f, 1.0f) *
-                   std::clamp((1.18f - d) / 0.10f, 0.0f, 1.0f);
-      float alpha = std::max(core, ring * 0.5f);
+      float d = std::sqrt(dx * dx + dy * dy) / half / 0.62f;
+      float core = std::clamp((1.0f - d) / 0.10f, 0.0f, 1.0f);
+      float ring = std::clamp((d - 1.0f) / 0.08f, 0.0f, 1.0f) *
+                   std::clamp((1.42f - d) / 0.22f, 0.0f, 1.0f);
+      float alpha = std::max(core, ring * 0.45f);
       float shade = core;
-      float value = 255.0f * shade + 20.0f * (1.0f - shade);
+      float value = 255.0f * shade + 26.0f * (1.0f - shade);
       auto* out = &rgba[(static_cast<size_t>(y) * size + x) * 4];
       out[0] = static_cast<unsigned char>(std::clamp(value, 0.0f, 255.0f));
       out[1] = out[0];
@@ -331,7 +331,7 @@ void drawDot() {
       lastY = y;
     }
   }
-  float size = 15.0f * g_app.dpiScale;
+  float size = 19.0f * g_app.dpiScale;
   float r = 0.55f;
   float g = 0.58f;
   float b = 0.65f;
