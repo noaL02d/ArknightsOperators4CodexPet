@@ -1,0 +1,73 @@
+{
+  "id": "char_1015_aglna2",
+  "name": "予愿安洁莉娜",
+  "avatar": "avatar.png",
+  "spineVersion": "3.8.99",
+  "models": {
+    "base": {
+      "skel": "spine/build/build_char_1015_aglna2.skel",
+      "atlas": "spine/build/build_char_1015_aglna2.atlas",
+      "texture": "spine/build/build_char_1015_aglna2.png"
+    },
+    "battle": {
+      "skel": "spine/front/char_1015_aglna2.skel",
+      "atlas": "spine/front/char_1015_aglna2.atlas",
+      "texture": "spine/front/char_1015_aglna2.png"
+    }
+  },
+  "animations": {
+    "base": {
+      "standIdle": "Relax",
+      "sitIdle": "Sit",
+      "lieIdle": "Sleep",
+      "interact": "Interact",
+      "move": "Move"
+    },
+    "battle": {
+      "idle": "Idle",
+      "attack": "Attack",
+      "start": "Start",
+      "start2": "Start_2",
+      "start2Begin": "Skill_2_Begin",
+      "start3Begin": "Skill_3_Begin",
+      "restart3": "Skill_3_Restart_Begin",
+      "die": "Die",
+      "skill1Die": "Skill_1_Die",
+      "skill1End": "Skill_1_End",
+      "skill1Idle": "Skill_1_Idle",
+      "skill1Loop": "Skill_1_Loop",
+      "skill2Die": "Skill_2_Die",
+      "skill2End": "Skill_2_End",
+      "skill2Idle": "Skill_2_Idle",
+      "skill2Loop": "Skill_2_Loop",
+      "skill2Begin": "Skill_2_Begin",
+      "skill2TakeoffBegin": "Skill_2_Takeoff_Begin",
+      "skill2TakeoffEnd": "Skill_2_Takeoff_End",
+      "skill2TakeoffLoop": "Skill_2_Takeoff_Loop",
+      "skill3Die": "Skill_3_Die",
+      "skill3End": "Skill_3_End",
+      "skill3Idle": "Skill_3_Idle",
+      "skill3Loop": "Skill_3_Loop",
+      "skill3Combat": "Skill_3_Combat",
+      "skill3Move": "Skill_3_Move",
+      "skill3Begin": "Skill_3_Begin"
+    }
+  },
+  "rootBone": "F_All",
+  "rootClamp": 80,
+  "referenceHeight": 640,
+  "referenceWidth": 650,
+  "codexPet": {
+    "version": 2,
+    "states": {
+      "idle": { "model": "battle", "anim": "idle", "frames": 6 },
+      "running-right": { "model": "base", "anim": "move", "frames": 8 },
+      "running-left": { "model": "base", "anim": "move", "frames": 8, "flip": true },
+      "waving": { "model": "base", "anim": "interact", "frames": 4 },
+      "jumping": { "model": "battle", "anim": "skill2TakeoffBegin", "frames": 5 },
+      "waiting": { "model": "base", "anim": "sitIdle", "frames": 6 },
+      "review": { "model": "battle", "anim": "skill1Loop", "frames": 6 },
+      "failed": { "model": "battle", "anim": "die", "frames": 8 }
+    }
+  }
+}

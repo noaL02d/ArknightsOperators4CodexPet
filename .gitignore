@@ -1,0 +1,8 @@
+node_modules/
+dist/
+release/
+.vite/
+*.log
+native/build/
+native/vendor/spine-runtimes/
+
