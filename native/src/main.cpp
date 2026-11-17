@@ -377,16 +377,22 @@ void positionCardWindow() {
   int width = g_app.card.width();
   int height = g_app.card.height();
   if (width <= 0 || height <= 0) return;
-  RECT pet{};
-  GetWindowRect(g_app.window, &pet);
-  POINT dot = dotScreenPoint();
-  int x = dot.x - width / 2;
-  int y = pet.top - height - static_cast<int>(8 * g_app.dpiScale);
-  HMONITOR monitor = MonitorFromPoint(dot, MONITOR_DEFAULTTONEAREST);
+  float centerClient = 0.0f;
+  float topClient = 0.0f;
+  if (!g_app.player.headScreenAnchor(centerClient, topClient)) return;
+  POINT anchor{g_app.windowPosition.x + static_cast<LONG>(std::lround(centerClient)),
+               g_app.windowPosition.y + static_cast<LONG>(std::lround(topClient))};
+  int x = anchor.x - width / 2;
+  int y = anchor.y - height - static_cast<int>(std::lround(4 * g_app.dpiScale));
+  HMONITOR monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST);
   MONITORINFO info{};
   info.cbSize = sizeof(info);
   if (GetMonitorInfoW(monitor, &info)) {
-    if (y < info.rcWork.top + 8) y = pet.bottom + static_cast<int>(8 * g_app.dpiScale);
+    RECT pet{};
+    GetWindowRect(g_app.window, &pet);
+    if (y < info.rcWork.top + 8) {
+      y = pet.bottom + static_cast<int>(std::lround(4 * g_app.dpiScale));
+    }
     x = std::clamp(x, static_cast<int>(info.rcWork.left) + 8,
                    static_cast<int>(info.rcWork.right) - width - 8);
     y = std::clamp(y, static_cast<int>(info.rcWork.top) + 8,
