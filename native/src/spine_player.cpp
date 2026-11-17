@@ -265,6 +265,35 @@ bool SpinePlayer::loadModel(Renderer& renderer, const OperatorManifest& manifest
       center.x = (head.minX + head.maxX) * 0.5f;
       center.y = head.maxY;
       out.headCenters[key] = center;
+      Bounds ears = computeBounds(skeleton, "Ear");
+      Anchor line;
+      line.x = center.x;
+      line.y = ears.valid() ? ears.maxY : head.maxY;
+      {
+        float sumX = line.x;
+        float maxEarY = line.y;
+        int samples = 1;
+        spine::Skeleton probe(out.data);
+        spine::AnimationStateData probeData(out.data);
+        spine::AnimationState probeState(&probeData);
+        probeState.setAnimation(0, animation, true);
+        for (int step = 0; step < 30; ++step) {
+          probeState.update(0.1f);
+          probeState.apply(probe);
+          probe.updateWorldTransform();
+          Bounds probeHead = computeBounds(probe, "Head");
+          if (probeHead.valid()) {
+            sumX += (probeHead.minX + probeHead.maxX) * 0.5f;
+            ++samples;
+          }
+          Bounds probeEars = computeBounds(probe, "Ear");
+          if (probeEars.valid()) maxEarY = std::max(maxEarY, probeEars.maxY);
+        }
+        line.x = sumX / static_cast<float>(samples);
+        line.y = maxEarY;
+        PETLOG("pet: idle line %s centerX=%.1f earTop=%.1f\n", key, line.x, line.y);
+      }
+      out.idleLines[key] = line;
     }
   }
   return true;
@@ -729,6 +758,26 @@ bool SpinePlayer::headScreenAnchor(float& centerX, float& topY) const {
   float cameraY = cameraAnchor_.y + zoom_ * viewportHeight_ * 0.5f - zoom_ * bottomMargin_;
   centerX = viewportWidth_ * 0.5f + (worldX - cameraAnchor_.x) / zoom_;
   topY = viewportHeight_ * 0.5f - (worldY - cameraY) / zoom_;
+  return true;
+}
+
+bool SpinePlayer::cardAnchor(float& centerX, float& lineY) const {
+  if (!ready_ || !manifest_) return false;
+  const Model& model = models_[form_ == Form::Base ? 0 : 1];
+  std::string key;
+  if (!plan_.steps.empty()) key = plan_.steps.back().anim;
+  auto line = model.idleLines.find(key);
+  if (line == model.idleLines.end()) {
+    const char* fallback = form_ == Form::Base ? "standIdle" : "idle";
+    line = model.idleLines.find(fallback);
+    if (line == model.idleLines.end()) return false;
+  }
+  float cameraX = cameraAnchor_.x;
+  float cameraY = cameraAnchor_.y + zoom_ * viewportHeight_ * 0.5f - zoom_ * bottomMargin_;
+  float worldX = line->second.x * static_cast<float>(facing_);
+  float worldY = line->second.y;
+  centerX = viewportWidth_ * 0.5f + (worldX - cameraX) / zoom_;
+  lineY = viewportHeight_ * 0.5f - (worldY - cameraY) / zoom_;
   return true;
 }
 

@@ -46,6 +46,7 @@ class SpinePlayer {
   void worldToScreen(float worldX, float worldY, float& screenX, float& screenY) const;
   bool dotScreenPosition(float& screenX, float& screenY) const;
   bool headScreenAnchor(float& centerX, float& topY) const;
+  bool cardAnchor(float& centerX, float& lineY) const;
 
   Form form() const { return form_; }
   void setOnIdle(std::function<void()> callback) { onIdle_ = std::move(callback); }
@@ -66,6 +67,7 @@ class SpinePlayer {
     std::map<std::string, Anchor> anchors;
     std::map<std::string, Anchor> boxesTopRight;
     std::map<std::string, Anchor> headCenters;
+    std::map<std::string, Anchor> idleLines;
   };
 
   struct Listener : spine::AnimationStateListenerObject {

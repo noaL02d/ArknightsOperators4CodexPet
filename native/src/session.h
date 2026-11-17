@@ -63,6 +63,8 @@ class SessionMonitor {
   int64_t scanAt_ = 0;
   int64_t receiptsAt_ = 0;
   bool receiptsLoaded_ = false;
+  void* db_ = nullptr;
+  void* statement_ = nullptr;
 };
 
 std::string codexHomePath();

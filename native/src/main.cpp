@@ -372,18 +372,17 @@ POINT dotScreenPoint() {
                g_app.windowPosition.y + g_app.dotPosition.y};
 }
 
-void positionCardWindow() {
-  if (!g_app.card.hwnd()) return;
+bool computeCardPosition(int& x, int& y) {
   int width = g_app.card.width();
   int height = g_app.card.height();
-  if (width <= 0 || height <= 0) return;
+  if (width <= 0 || height <= 0) return false;
   float centerClient = 0.0f;
-  float topClient = 0.0f;
-  if (!g_app.player.headScreenAnchor(centerClient, topClient)) return;
+  float lineClient = 0.0f;
+  if (!g_app.player.cardAnchor(centerClient, lineClient)) return false;
   POINT anchor{g_app.windowPosition.x + static_cast<LONG>(std::lround(centerClient)),
-               g_app.windowPosition.y + static_cast<LONG>(std::lround(topClient))};
-  int x = anchor.x - width / 2;
-  int y = anchor.y - height - static_cast<int>(std::lround(4 * g_app.dpiScale));
+               g_app.windowPosition.y + static_cast<LONG>(std::lround(lineClient))};
+  x = anchor.x - width / 2;
+  y = anchor.y - height - static_cast<int>(std::lround(14 * g_app.dpiScale));
   HMONITOR monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST);
   MONITORINFO info{};
   info.cbSize = sizeof(info);
@@ -398,7 +397,27 @@ void positionCardWindow() {
     y = std::clamp(y, static_cast<int>(info.rcWork.top) + 8,
                    static_cast<int>(info.rcWork.bottom) - height - 8);
   }
+  return true;
+}
+
+void positionCardWindow() {
+  if (!g_app.card.hwnd()) return;
+  int x = 0;
+  int y = 0;
+  if (!computeCardPosition(x, y)) return;
   g_app.card.show(x, y);
+}
+
+void followCard() {
+  if (!g_app.card.visible()) return;
+  int targetX = 0;
+  int targetY = 0;
+  if (!computeCardPosition(targetX, targetY)) return;
+  RECT current{};
+  GetWindowRect(g_app.card.hwnd(), &current);
+  if (std::abs(current.left - targetX) > 2 || std::abs(current.top - targetY) > 2) {
+    g_app.card.moveTo(targetX, targetY);
+  }
 }
 
 void syncCard(bool force) {
@@ -1217,6 +1236,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
 #endif
     g_app.player.update(delta);
     renderFrame();
+    {
+      static double lastFollow = 0.0;
+      if (now - lastFollow > 80.0) {
+        lastFollow = now;
+        followCard();
+      }
+    }
 #ifdef PET_CONSOLE
     QueryPerformanceCounter(&t1);
     static double statStart = now;

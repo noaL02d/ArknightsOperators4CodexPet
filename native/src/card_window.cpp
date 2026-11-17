@@ -335,6 +335,11 @@ void CardWindow::show(int x, int y) {
   visible_ = true;
 }
 
+void CardWindow::moveTo(int x, int y) {
+  if (!hwnd_ || !visible_) return;
+  SetWindowPos(hwnd_, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
 void CardWindow::hide() {
   if (hwnd_) ShowWindow(hwnd_, SW_HIDE);
   visible_ = false;

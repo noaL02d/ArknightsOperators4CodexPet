@@ -232,26 +232,42 @@ void SessionMonitor::tick(int64_t nowMs) {
 void SessionMonitor::refreshReceipts(int64_t nowMs) {
   if (receiptsLoaded_ && nowMs - receiptsAt_ < kReceiptsIntervalMs) return;
   receiptsAt_ = nowMs;
-  std::string path = codexHomePath() + "\\state_5.sqlite";
-  sqlite3* db = nullptr;
-  if (sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
-    if (db) sqlite3_close(db);
+  if (!db_) {
+    std::string path = codexHomePath() + "\\state_5.sqlite";
+    sqlite3* db = nullptr;
+    if (sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+      if (db) sqlite3_close(db);
+      return;
+    }
+    sqlite3_busy_timeout(db, 200);
+    sqlite3_stmt* statement = nullptr;
+    if (sqlite3_prepare_v2(db, "select thread_id, first_unread_turn from thread_read_receipts",
+                           -1, &statement, nullptr) != SQLITE_OK) {
+      sqlite3_close(db);
+      return;
+    }
+    db_ = db;
+    statement_ = statement;
+  }
+  auto* db = static_cast<sqlite3*>(db_);
+  auto* statement = static_cast<sqlite3_stmt*>(statement_);
+  sqlite3_reset(statement);
+  sqlite3_clear_bindings(statement);
+  std::map<std::string, bool> unread;
+  int rc = SQLITE_ROW;
+  while ((rc = sqlite3_step(statement)) == SQLITE_ROW) {
+    const unsigned char* id = sqlite3_column_text(statement, 0);
+    if (!id) continue;
+    bool hasUnread = sqlite3_column_type(statement, 1) != SQLITE_NULL;
+    unread[reinterpret_cast<const char*>(id)] = hasUnread;
+  }
+  if (rc != SQLITE_DONE) {
+    sqlite3_finalize(statement);
+    sqlite3_close(db);
+    db_ = nullptr;
+    statement_ = nullptr;
     return;
   }
-  sqlite3_busy_timeout(db, 200);
-  std::map<std::string, bool> unread;
-  sqlite3_stmt* statement = nullptr;
-  if (sqlite3_prepare_v2(db, "select thread_id, first_unread_turn from thread_read_receipts", -1,
-                         &statement, nullptr) == SQLITE_OK) {
-    while (sqlite3_step(statement) == SQLITE_ROW) {
-      const unsigned char* id = sqlite3_column_text(statement, 0);
-      if (!id) continue;
-      bool hasUnread = sqlite3_column_type(statement, 1) != SQLITE_NULL;
-      unread[reinterpret_cast<const char*>(id)] = hasUnread;
-    }
-    sqlite3_finalize(statement);
-  }
-  sqlite3_close(db);
   unread_ = std::move(unread);
   receiptsLoaded_ = true;
 }

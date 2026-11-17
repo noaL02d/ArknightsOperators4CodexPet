@@ -15,6 +15,7 @@ class CardWindow {
 
   void setMessages(std::vector<SessionMessage> messages, float dpiScale);
   void show(int x, int y);
+  void moveTo(int x, int y);
   void hide();
   bool visible() const { return visible_; }
   HWND hwnd() const { return hwnd_; }
